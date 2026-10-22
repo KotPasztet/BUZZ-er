@@ -2,13 +2,42 @@
 
 OUTPUT_DIR="$HOME"
 
-echo "=== Rozpoczynanie wielowątkowego pobierania i otwierania obrazów ==="
+echo "=== Rozpoczynanie wielowątkowego pobierania obrazów ==="
 echo "Katalog docelowy: Katalog domowy ($OUTPUT_DIR)"
 
-# Funkcja pobierająca, zapisująca i otwierająca pojedynczy obraz
-download_img() {
-    local url="$1"
-    local prefix="$2"
+# Lista zadań (URL + prefiks)
+# Tworzymy tablicę wszystkich linków do pobrania
+declare -a TASKS
+
+# 1. Główne pliki (0-60)
+for i in {0..60}; do
+    TASKS+=("https://szkola.buz.info.pl/graf/linux$i|linux_$i")
+done
+
+# 2. part1 (0-60)
+for i in {0..60}; do
+    TASKS+=("https://szkola.buz.info.pl/graf/part1/linux$i|part1_linux_$i")
+done
+
+# 3. part2 (0-60)
+for i in {0..60}; do
+    TASKS+=("https://szkola.buz.info.pl/graf/part2/linux$i|part2_linux_$i")
+done
+
+# 4. part3 (0-4)
+for i in {0..4}; do
+    TASKS+=("https://szkola.buz.info.pl/graf/part3/linux$i|part3_linux_$i")
+done
+
+TOTAL=${#TASKS[@]}
+CURRENT=0
+LOCKFILE=$(mktemp)
+
+# Funkcja pobierająca pojedynczy plik
+download_one() {
+    local item="$1"
+    IFS='|' read -r url prefix <<< "$item"
+    
     local hf=$(mktemp)
     local tb=$(mktemp)
     
@@ -30,9 +59,8 @@ download_img() {
         
         local final_path="$OUTPUT_DIR/${prefix}${ext}"
         mv "$tb" "$final_path"
-        echo "[OK] Pobrano i otwarto: $prefix"
         
-        # Automatyczne otwieranie pliku w zależności od systemu operacyjnego
+        # Otwieranie pliku
         if [[ "$OSTYPE" == "darwin"* ]]; then
             open "$final_path"
         else
@@ -44,30 +72,23 @@ download_img() {
     rm -f "$hf"
 }
 
-export -f download_img
+export -f download_one
 export OUTPUT_DIR
 
-# Generowanie listy zadań i przekazanie do xargs (-P 15 oznacza 15 wątków jednocześnie)
-(
-    # Główne pliki (linux0 - linux60)
-    for i in {0..60}; do
-        echo "https://szkola.buz.info.pl/graf/linux$i" "linux_$i"
-    done
-    
-    # Pliki z part1 (0 - 60)
-    for i in {0..60}; do
-        echo "https://szkola.buz.info.pl/graf/part1/linux$i" "part1_linux_$i"
-    done
+echo "Pobieranie $TOTAL plików w tle..."
 
-    # Pliki z part2 (0 - 60)
-    for i in {0..60}; do
-        echo "https://szkola.buz.info.pl/graf/part2/linux$i" "part2_linux_$i"
-    done
+# Uruchamianie równoległe z paskiem postępu (zastępuje xargs i poprawnie działa w strumieniu)
+for item in "${TASKS[@]}"; do
+    download_one "$item" &
     
-    # Pliki z part3 (tylko 5 obrazów: 0 - 4)
-    for i in {0..4}; do
-        echo "https://szkola.buz.info.pl/graf/part3/linux$i" "part3_linux_$i"
+    # Ograniczenie liczby równoległych zadań do 15
+    while [ $(jobs -r -p | wc -l) -ge 15 ]; do
+        sleep 0.1
     done
-) | xargs -n 2 -P 15 bash -c 'download_img "$0" "$1"'
+done
 
-echo "=== Zakończono! Wszystkie pliki zostały pobrane i otwarte w katalogu domowym. ==="
+# Czekaj na zakończenie wszystkich procesów w tle
+wait
+
+rm -f "$LOCKFILE"
+echo -e "\n=== Zakończono! Wszystkie pliki zostały pobrane i otwarte w katalogu domowym. ==="
