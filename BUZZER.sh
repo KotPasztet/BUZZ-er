@@ -2,12 +2,11 @@
 
 OUTPUT_DIR="$HOME"
 
-echo "=== Rozpoczynanie wielowątkowego pobierania obrazów ==="
+echo "=== Rozpoczynanie pobierania obrazów ==="
 echo "Katalog docelowy: Katalog domowy ($OUTPUT_DIR)"
 
-# Lista zadań (URL + prefiks)
-# Tworzymy tablicę wszystkich linków do pobrania
-declare -a TASKS
+# Przygotowanie listy zadań
+TASKS=()
 
 # 1. Główne pliki (0-60)
 for i in {0..60}; do
@@ -31,24 +30,26 @@ done
 
 TOTAL=${#TASKS[@]}
 CURRENT=0
-LOCKFILE=$(mktemp)
 
-# Funkcja pobierająca pojedynczy plik
-download_one() {
-    local item="$1"
+echo "Łącznie do pobrania: $TOTAL plików."
+
+for item in "${TASKS[@]}"; do
     IFS='|' read -r url prefix <<< "$item"
+    CURRENT=$((CURRENT + 1))
     
-    local hf=$(mktemp)
-    local tb=$(mktemp)
+    # Prosty pasek postępu w konsoli
+    percent=$((CURRENT * 100 / TOTAL))
+    echo -ne "Pobieranie [$CURRENT/$TOTAL] ($percent%): $prefix\r"
     
-    local code
+    hf=$(mktemp)
+    tb=$(mktemp)
+    
     code=$(curl -s -D "$hf" -o "$tb" -w "%{http_code}" "$url")
     
     if [ "$code" -eq 200 ]; then
-        local ct
         ct=$(grep -i "content-type" "$hf" | tr '[:upper:]' '[:lower:]')
         
-        local ext=".jpg"
+        ext=".jpg"
         if echo "$ct" | grep -q "png"; then
             ext=".png"
         elif echo "$ct" | grep -q "gif"; then
@@ -57,7 +58,7 @@ download_one() {
             ext=".jpg"
         fi
         
-        local final_path="$OUTPUT_DIR/${prefix}${ext}"
+        final_path="$OUTPUT_DIR/${prefix}${ext}"
         mv "$tb" "$final_path"
         
         # Otwieranie pliku
@@ -70,25 +71,6 @@ download_one() {
         rm -f "$tb"
     fi
     rm -f "$hf"
-}
-
-export -f download_one
-export OUTPUT_DIR
-
-echo "Pobieranie $TOTAL plików w tle..."
-
-# Uruchamianie równoległe z paskiem postępu (zastępuje xargs i poprawnie działa w strumieniu)
-for item in "${TASKS[@]}"; do
-    download_one "$item" &
-    
-    # Ograniczenie liczby równoległych zadań do 15
-    while [ $(jobs -r -p | wc -l) -ge 15 ]; do
-        sleep 0.1
-    done
 done
 
-# Czekaj na zakończenie wszystkich procesów w tle
-wait
-
-rm -f "$LOCKFILE"
 echo -e "\n=== Zakończono! Wszystkie pliki zostały pobrane i otwarte w katalogu domowym. ==="
